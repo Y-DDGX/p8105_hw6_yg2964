@@ -31,7 +31,7 @@ options(
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 
-set.seed(127)
+set.seed(924)
 ```
 
 ### Problem 1
@@ -42,11 +42,11 @@ weather_df =
     c("USW00094728"),
     var = c("PRCP", "TMIN", "TMAX"), 
     date_min = "2017-01-01",
-    date_max = "2017-12-31") %>%
+    date_max = "2017-12-31") |> 
   mutate(
     name = recode(id, USW00094728 = "CentralPark_NY"),
     tmin = tmin / 10,
-    tmax = tmax / 10) %>%
+    tmax = tmax / 10) |> 
   select(name, id, everything())
 
 get_resample = function(df) {
@@ -111,3 +111,118 @@ R² Distribution:
 Centered around 0.91 with values ranging from 0.88 to 0.94, showing a compact and symmetric distribution that indicates a strong and stable linear relationship between tmax and tmin.
 log(β₀*β₁) Distribution:
 Centered around 2.02 with values ranging from 1.95 to 2.10, displaying a symmetric distribution that confirms stable, positive coefficient products and supports the positive correlation between variables.
+
+
+### Problem 2
+```{r}
+crime_data = read_csv("https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv") |>
+  janitor::clean_names() |>
+  mutate(
+    location = paste(city, state, sep = ", "),
+    case_solved = ifelse(disposition == "Closed by arrest", 1, 0),
+    age = as.numeric(victim_age)
+  ) |>
+  filter(!location %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL")) |>
+  filter(victim_race %in% c("White", "Black"))
+```
+
+#### Single City Analysis (Baltimore)
+```{r}
+baltimore_data = crime_data |>
+  filter(location == "Baltimore, MD") |>
+  select(uid, case_solved, age, victim_sex, victim_race)
+
+# Fit logistic model for Baltimore
+fit_md_logistic = baltimore_data |>
+  glm(case_solved ~ age + victim_sex + victim_race,
+      data = _, family = binomial())
+
+# Get Baltimore results
+fit_md_logistic |>
+  broom::tidy(conf.int = TRUE) |>
+  mutate(
+    OR = exp(estimate),
+    OR_conf.low = exp(conf.low),
+    OR_conf.high = exp(conf.high)
+  ) |>
+  filter(term == "victim_sexMale") |>
+  select(term, OR, OR_conf.low, OR_conf.high) |>
+  knitr::kable(digits = 3)
+
+
+```
+The odds of solving a homicide in Baltimore for male victims are 0.426 times the odds for female victims (95% CI: 0.324-0.558), after adjusting for age and race. This indicates significantly lower clearance rates for male victims compared to female victims.
+
+####  Analysis for All Cities
+```{r}
+# Function for City Analysis 
+fit_logistic = function(data){
+  model = glm(case_solved ~ age + victim_sex + victim_race,
+              data = data, family = binomial())
+  
+  model |>
+    broom::tidy(conf.int = TRUE) |>
+    mutate(
+      OR = exp(estimate),
+      OR_conf.low = exp(conf.low),
+      OR_conf.high = exp(conf.high)
+    ) |>
+    filter(term == "victim_sexMale") |>
+    select(term, OR, OR_conf.low, OR_conf.high)
+}
+city_results = crime_data |>
+  group_by(location) |>
+  nest() |>
+  mutate(
+    model = map(data, fit_logistic)
+  ) |>
+  unnest(model) |>
+  select(location, OR, OR_conf.low, OR_conf.high) |>
+  ungroup()
+
+
+city_results |>
+  knitr::kable(digits = 3)
+
+
+```
+
+#### Create Plot
+```{r}
+city_results |>
+  mutate(
+    location = fct_reorder(location, OR)
+  ) |>
+  ggplot(aes(x = location, y = OR)) +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = OR_conf.low, ymax = OR_conf.high), 
+    width = 0.5
+  ) +
+  geom_hline(
+    yintercept = 1, 
+    linetype = "dashed", 
+    color = "red"
+  ) +
+  labs(
+    title = "Adjusted Odds Ratios for Solving Homicides by City",
+    x = "City",
+    y = "Odds Ratio (Male vs Female)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1)
+  )
+```
+
+The plot shows adjusted odds ratios for solving homicides comparing male to female victims across different U.S. cities. A few key observations:
+
+- Most cities show odds ratios below 1 (red dashed line), indicating that homicides with male victims are generally less likely to be solved than those with female victims.
+
+- Cities like New York and Baton Rouge have the lowest odds ratios (around 0.3-0.4), suggesting male victim cases are much less likely to be solved in these locations.
+
+- A few cities like Albuquerque and Stockton show odds ratios above 1, indicating higher likelihood of solving male victim cases, though their wide confidence intervals suggest less precise estimates.
+
+- The confidence intervals (vertical lines) vary in width across cities, reflecting different levels of uncertainty in the estimates, with smaller cities typically showing wider intervals.
+
+- Baltimore (shown earlier with OR=0.426) falls in the lower third of cities, indicating a relatively strong disparity in solving cases between male and female victims.
