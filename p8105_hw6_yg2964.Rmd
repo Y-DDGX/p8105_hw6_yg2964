@@ -266,6 +266,8 @@ birthweight |>
   ) +
   theme_minimal()
 ```
+
+#### Compare models
 ```{r}
 cv_df = birthweight |>
   crossv_mc(100) |>
@@ -308,16 +310,6 @@ cv_results |>
     x = "Model",
     y = "RMSE"
   )
-
-# Print summary statistics
-cv_results |>
-  summarize(
-    model1_mean = mean(rmse_fit0),
-    model1_sd = sd(rmse_fit0),
-    model2_mean = mean(rmse_fit1),
-    model2_sd = sd(rmse_fit1),
-    model3_mean = mean(rmse_fit2),
-    model3_sd = sd(rmse_fit2)
-  )
 ```
 
+The Full Model shows the best predictive performance with the lowest RMSE around 280-300 grams. While the Interactions model performs moderately well, the Length + GA model has the highest prediction errors. This suggests that using multiple relevant predictors (Full Model) is more effective than either using just two basic measurements or focusing on complex interactions between variables.
