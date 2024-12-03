@@ -31,7 +31,7 @@ options(
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 
-set.seed(924)
+set.seed(127)
 ```
 
 ### Problem 1
@@ -226,3 +226,98 @@ The plot shows adjusted odds ratios for solving homicides comparing male to fema
 - The confidence intervals (vertical lines) vary in width across cities, reflecting different levels of uncertainty in the estimates, with smaller cities typically showing wider intervals.
 
 - Baltimore (shown earlier with OR=0.426) falls in the lower third of cities, indicating a relatively strong disparity in solving cases between male and female victims.
+
+### Problem 3
+```{r}
+birthweight = read.csv("data/birthweight.csv", na = c("NA","",".")) |>
+  mutate(
+    babysex = factor(babysex, levels = c(1, 2), labels = c("Male", "Female")),
+    malform = factor(malform, levels = c(0, 1), labels = c("Absent", "Present")),
+    frace = factor(frace, levels = c(1, 2, 3, 4, 8, 9), 
+                  labels = c("White", "Black", "Asian", "Puerto Rican", "Other", "Unknown")),
+    mrace = factor(mrace, levels = c(1, 2, 3, 4, 8),
+                  labels = c("White", "Black", "Asian", "Puerto Rican", "Other"))
+  ) |>
+  drop_na()
+```
+
+```{r}
+colSums(is.na(birthweight))
+```
+
+#### Create hypothesized model
+```{r}
+model = lm(bwt ~ gaweeks + bhead + blength + mheight + wtgain + ppbmi + smoken + parity + pnumlbw + babysex,                        
+           data = birthweight)
+
+summary(model)
+
+# Create plot
+birthweight |>
+  add_predictions(model) |>
+  add_residuals(model) |>
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Residuals vs Fitted Values for Birthweight Model",
+    x = "Fitted Values (grams)",
+    y = "Residuals (grams)"
+  ) +
+  theme_minimal()
+```
+```{r}
+cv_df = birthweight |>
+  crossv_mc(100) |>
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_results = cv_df |>
+  mutate(
+    fit_bw_0 = map(train, ~lm(bwt ~ gaweeks + bhead + blength + mheight + wtgain + 
+                             ppbmi + smoken + parity + pnumlbw + babysex, data = .x)),
+    fit_bw_1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    fit_bw_2 = map(train, ~lm(bwt ~ bhead * blength * babysex, data = .x))) |>
+  mutate(
+    rmse_fit0 = map2_dbl(fit_bw_0, test, ~rmse(model = .x, data = .y)),
+    rmse_fit1 = map2_dbl(fit_bw_1, test, ~rmse(model = .x, data = .y)),
+    rmse_fit2 = map2_dbl(fit_bw_2, test, ~rmse(model = .x, data = .y))
+  )
+
+# Create visualization
+cv_results |>
+  select(starts_with("rmse")) |>
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_") |>
+  mutate(model = factor(model, 
+                       levels = c("fit0", "fit1", "fit2"),
+                       labels = c("Full Model", "Length + GA", "Interactions"))) |>
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin(trim = FALSE) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  labs(
+    x = "Model",
+    y = "RMSE"
+  )
+
+# Print summary statistics
+cv_results |>
+  summarize(
+    model1_mean = mean(rmse_fit0),
+    model1_sd = sd(rmse_fit0),
+    model2_mean = mean(rmse_fit1),
+    model2_sd = sd(rmse_fit1),
+    model3_mean = mean(rmse_fit2),
+    model3_sd = sd(rmse_fit2)
+  )
+```
+
